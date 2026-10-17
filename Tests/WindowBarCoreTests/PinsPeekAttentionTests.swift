@@ -7,9 +7,12 @@ final class PinsPeekAttentionTests: XCTestCase {
     func testPinnedSideDefaultsRightAndAllNewPreferencesPersist() throws {
         var preferences = try JSONDecoder().decode(BarPreferences.self, from: Data("{}".utf8))
         XCTAssertEqual(preferences.pinnedSide, .left)
+        XCTAssertEqual(preferences.barEdge, .bottom)
         XCTAssertTrue(preferences.hoverPeekEnabled)
         XCTAssertEqual(preferences.notificationMode, .badgesAndPulse)
         preferences.pinnedSide = .right
+        preferences.barEdge = .right
+        preferences.sideCollapsed = true
         preferences.hoverPeekEnabled = false
         preferences.notificationMode = .off
         XCTAssertEqual(
@@ -33,6 +36,32 @@ final class PinsPeekAttentionTests: XCTestCase {
                 }
             }
         }
+    }
+
+    func testSideColumnKeepsPinsAndWindowsApartBelowTheHeader() {
+        for height in [300.0, 900] {
+            for count in [0, 3, 40] {
+                let top = ColumnLayout(width: 240, height: height, pinnedCount: count, side: .left)
+                let bottom = ColumnLayout(width: 240, height: height, pinnedCount: count, side: .right)
+                let header = height - ColumnLayout.headerHeight
+                XCTAssertEqual(top.launcherColumns, 5)
+                XCTAssertLessThanOrEqual(top.launchers.minY + top.launchers.height, header)
+                XCTAssertLessThanOrEqual(top.windows.minY + top.windows.height, top.launchers.minY)
+                XCTAssertLessThanOrEqual(bottom.launchers.minY + bottom.launchers.height, bottom.windows.minY)
+                XCTAssertLessThanOrEqual(bottom.windows.minY + bottom.windows.height, header)
+                XCTAssertEqual(top.windows.height, bottom.windows.height)
+                XCTAssertLessThanOrEqual(top.launchers.height, (header - 8) / 3 + 0.001)
+            }
+        }
+        let rows = ColumnLayout.rows(heights: [52, 30, 52], available: 100)
+        XCTAssertEqual(rows.offsets, [0, 56, 90])
+        XCTAssertEqual(rows.documentHeight, 142)
+        XCTAssertEqual(ColumnLayout.rows(heights: [], available: 100).documentHeight, 100)
+        let collapsed = ColumnLayout(
+            width: ColumnLayout.collapsedWidth, height: 900, pinnedCount: 3, side: .left, collapsed: true)
+        XCTAssertEqual(collapsed.launcherColumns, 1)
+        XCTAssertLessThanOrEqual(
+            collapsed.launchers.minY + collapsed.launchers.height, 900 - ColumnLayout.collapsedHeaderHeight)
     }
 
     func testRecentWindowSelectionUsesFocusAndDropsClosedWindows() {

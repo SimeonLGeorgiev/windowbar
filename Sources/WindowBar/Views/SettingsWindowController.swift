@@ -27,11 +27,12 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     let hoverActionsToggle = NSButton(
         checkboxWithTitle: "Show Switch, Minimize / Restore, and Close on hover", target: nil, action: nil)
     let autoHideToggle = NSButton(
-        checkboxWithTitle: "Auto-hide at the bottom screen edge", target: nil, action: nil)
+        checkboxWithTitle: "Auto-hide at the screen edge", target: nil, action: nil)
     let hideDelay = NSSlider(value: 0.8, minValue: 0.2, maxValue: 3, target: nil, action: nil)
     let hideDelayLabel = NSTextField(labelWithString: "")
     let notificationMode = NSPopUpButton()
     let pinnedSide = NSPopUpButton()
+    let barEdge = NSPopUpButton()
     let peekToggle = NSButton(
         checkboxWithTitle: "Peek at windows after hovering for 0.6 seconds", target: nil, action: nil)
     let pinnedTable = NSTableView()
@@ -155,30 +156,36 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private func behaviorPage() {
         let view = page("Behavior")
         for (button, y) in [
-            (searchToggle, 366.0), (minimizedToggle, 332.0),
-            (hoverActionsToggle, 226.0), (peekToggle, 194.0), (autoHideToggle, 158.0),
+            (searchToggle, 366.0), (minimizedToggle, 336.0),
+            (hoverActionsToggle, 224.0), (peekToggle, 194.0), (autoHideToggle, 162.0),
         ] {
             button.frame = NSRect(x: 20, y: y, width: 520, height: 26)
             button.target = self
             button.action = #selector(changeBehavior)
             view.addSubview(button)
         }
-        label("Window grouping", y: 266, in: view)
+        label("Bar position", y: 285, in: view)
+        barEdge.addItems(withTitles: ["Bottom (default)", "Left side", "Right side"])
+        barEdge.frame = NSRect(x: 220, y: 298, width: 310, height: 28)
+        barEdge.target = self
+        barEdge.action = #selector(changeBarEdge)
+        view.addSubview(barEdge)
+        label("Window grouping", y: 251, in: view)
         grouping.addItems(withTitles: ["None — individual windows", "By app", "By app and Chrome profile"])
-        grouping.frame = NSRect(x: 220, y: 279, width: 310, height: 28)
+        grouping.frame = NSRect(x: 220, y: 264, width: 310, height: 28)
         grouping.target = self
         grouping.action = #selector(changeBehavior)
         view.addSubview(grouping)
-        label("Hide delay", y: 110, in: view)
-        hideDelay.frame = NSRect(x: 160, y: 126, width: 260, height: 24)
+        label("Hide delay", y: 114, in: view)
+        hideDelay.frame = NSRect(x: 160, y: 130, width: 260, height: 24)
         hideDelay.target = self
         hideDelay.action = #selector(changeBehavior)
         view.addSubview(hideDelay)
-        hideDelayLabel.frame = NSRect(x: 438, y: 126, width: 90, height: 24)
+        hideDelayLabel.frame = NSRect(x: 438, y: 130, width: 90, height: 24)
         view.addSubview(hideDelayLabel)
-        label("Unread activity", y: 60, in: view)
+        label("Unread activity", y: 66, in: view)
         notificationMode.addItems(withTitles: ["Badges + brief pulse", "Badges only", "Off"])
-        notificationMode.frame = NSRect(x: 220, y: 76, width: 310, height: 28)
+        notificationMode.frame = NSRect(x: 220, y: 82, width: 310, height: 28)
         notificationMode.target = self
         notificationMode.action = #selector(changeBehavior)
         view.addSubview(notificationMode)
@@ -189,7 +196,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private func pinnedPage() {
         let view = page("Pinned Apps")
         label("Pinned apps position", y: 348, in: view)
-        pinnedSide.addItems(withTitles: ["Right", "Left (default)"])
+        pinnedSide.addItems(withTitles: ["Right (bottom on a side bar)", "Left (default; top on a side bar)"])
         pinnedSide.frame = NSRect(x: 270, y: 364, width: 260, height: 28)
         pinnedSide.target = self
         pinnedSide.action = #selector(changePinnedSide)
@@ -255,6 +262,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     func refresh() {
         let value = features.preferences.value
         pinnedSide.selectItem(at: value.pinnedSide == .right ? 0 : 1)
+        barEdge.selectItem(at: BarPreferences.BarEdge.allCases.firstIndex(of: value.barEdge) ?? 0)
         peekToggle.state = value.hoverPeekEnabled ? .on : .off
         notificationMode.selectItem(
             at: BarPreferences.NotificationMode.allCases.firstIndex(of: value.notificationMode) ?? 0)
@@ -373,6 +381,11 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     @objc func changePinnedSide() {
         var value = features.preferences.value
         value.pinnedSide = pinnedSide.indexOfSelectedItem == 1 ? .left : .right
+        do { try save(value) } catch { failed(error) }
+    }
+    @objc func changeBarEdge() {
+        var value = features.preferences.value
+        value.barEdge = BarPreferences.BarEdge.allCases[max(0, barEdge.indexOfSelectedItem)]
         do { try save(value) } catch { failed(error) }
     }
     @objc func changeScope() {

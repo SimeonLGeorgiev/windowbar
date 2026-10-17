@@ -12,7 +12,11 @@ class ReorderableButton: NSButton, NSDraggingSource {
     ) {
         unreadBadge = badge
         if let badge {
-            setAccessibilityValue(badge == .dot ? "Unread activity" : badge.label + " unread")
+            switch badge {
+            case .dot: setAccessibilityValue("Unread activity")
+            case .alert: setAccessibilityValue("Alert waiting for input")
+            case .count: setAccessibilityValue(badge.label + " unread")
+            }
         } else {
             setAccessibilityValue(nil)
         }
@@ -54,6 +58,7 @@ class ReorderableButton: NSButton, NSDraggingSource {
 
     var dragIdentifier = ""
     var kind: Kind = .window
+    var reordersVertically = false
     var onReorder: ((String, String, Bool) -> Void)?
     var onDragStart: (() -> Void)?
     private var dropHighlight = false
@@ -130,7 +135,10 @@ class ReorderableButton: NSButton, NSDraggingSource {
         }
         guard accepts(sender), let id = sender.draggingPasteboard.string(forType: type) else { return false }
         let point = convert(sender.draggingLocation, from: nil)
-        onReorder?(id, dragIdentifier, point.x > bounds.midX)
+        let after =
+            reordersVertically
+            ? (isFlipped ? point.y > bounds.midY : point.y < bounds.midY) : point.x > bounds.midX
+        onReorder?(id, dragIdentifier, after)
         return true
     }
 

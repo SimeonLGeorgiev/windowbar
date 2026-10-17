@@ -71,7 +71,7 @@ struct AccessibilityWindowResizer: DesktopWindowResizing {
         }
         guard let actual = state(of: entry),
             ReservedWindowArea.matches(actual.frame, frame)
-                || (frame.height < current.frame.height
+                || ((frame.height < current.frame.height || frame.width < current.frame.width)
                     && ReservedWindowArea.fits(actual.frame, within: frame))
         else {
             // A size constraint or partial write must not leave an unintended move behind.

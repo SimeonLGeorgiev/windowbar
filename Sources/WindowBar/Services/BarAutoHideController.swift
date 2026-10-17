@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import WindowBarCore
 
 final class BarAutoHideController {
@@ -9,13 +10,34 @@ final class BarAutoHideController {
     private(set) var edgeFrame: NSRect = .zero
     var hidden: Bool { state.hidden }
 
-    func layout(shownFrame: NSRect, screenFrame: NSRect, panel: NSPanel) {
-        let edge = NSRect(x: shownFrame.minX, y: screenFrame.minY, width: shownFrame.width, height: 4)
+    func layout(
+        shownFrame: NSRect, screenFrame: NSRect, edge barEdge: BarPreferences.BarEdge = .bottom, panel: NSPanel,
+        animated: Bool = false
+    ) {
+        let edge: NSRect
+        switch barEdge {
+        case .bottom:
+            edge = NSRect(x: shownFrame.minX, y: screenFrame.minY, width: shownFrame.width, height: 4)
+        case .left:
+            edge = NSRect(x: screenFrame.minX, y: shownFrame.minY, width: 4, height: shownFrame.height)
+        case .right:
+            edge = NSRect(x: screenFrame.maxX - 4, y: shownFrame.minY, width: 4, height: shownFrame.height)
+        }
         guard self.shownFrame != shownFrame || edgeFrame != edge else { return }
         if content == nil { content = panel.contentView }
+        let wasShown = !state.hidden && panel.frame == self.shownFrame
         self.shownFrame = shownFrame
         edgeFrame = edge
-        apply(panel, animated: false)
+        guard animated, wasShown, panel.isVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        else {
+            apply(panel, animated: false)
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.22
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrame(shownFrame, display: true)
+        }
     }
 
     func update(
@@ -52,12 +74,14 @@ final class BarAutoHideController {
             }
         } else {
             let wasStrip = panel.frame == edgeFrame
+            if animate && wasStrip { panel.alphaValue = 0 }
+            // Resize before re-attaching, so the bar never lays out at strip width.
+            panel.setFrame(shownFrame, display: false)
             panel.contentView = content
+            content?.layoutSubtreeIfNeeded()
             panel.ignoresMouseEvents = false
             panel.hasShadow = true
-            panel.setFrame(shownFrame, display: false)
             if animate {
-                if wasStrip { panel.alphaValue = 0 }
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.18
                     panel.animator().alphaValue = 1

@@ -30,11 +30,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let features: FeatureCoordinator
     private let diagnostics: Diagnostics
     private let previews = HoverPreviewController()
+    private let rowSummary = RowSummaryController()
     private let peek = WindowPeekController()
     private let workAreaQueue = DispatchQueue(label: "local.windowbar.work-area", qos: .userInitiated)
     private var recency = WindowRecency()
     private var attention = AppAttention()
     private let badgeReader: AppBadgeReading
+    private let windowBadgeReader = WindowBadgeReader()
     private lazy var shortcuts = GlobalShortcuts()
     private lazy var managementMenus = BarManagementMenus(features: features)
     private let settingsProcess = SettingsProcessController()
@@ -105,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         previews.onSelect = { [weak self] in self?.select($0) }
         previews.onMinimize = { [weak self] in self?.minimize($0) }
         previews.onClose = { [weak self] in self?.closeWindow($0) }
+        previews.onShow = { [weak self] in self?.rowSummary.hide() }
         rebuildPanels()
         configureZoomMonitor()
         DistributedNotificationCenter.default().addObserver(
@@ -175,7 +178,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 defer: false)
             panel.isReleasedWhenClosed = false
             panel.level = .floating
-            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+            // Transient, not stationary: Show Desktop and Mission Control clear the bar like other windows.
+            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
             panel.hidesOnDeactivate = false
             panel.isOpaque = false
             panel.backgroundColor = .clear
@@ -233,6 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     actionsEnabled: self.features.preferences.value.hoverActionsEnabled
                 )
             }
+            bar.onRowPointer = { [weak self] in self?.rowPointer($0, button: $1, entered: $2) }
             bar.onDragStart = { [weak self] in self?.cancelHover() }
             bar.augmentWindowMenu = { [weak self] menu, entry in
                 guard let self else { return }
@@ -240,13 +245,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             bar.menuButton.target = self
             bar.menuButton.action = #selector(showMenu(_:))
+            bar.collapseButton.target = self
+            bar.collapseButton.action = #selector(toggleCollapsed)
             bar.permissionButton.target = self
             bar.permissionButton.action = #selector(enableAccessibility)
             panel.contentView = bar
             panels.append(panel)
             bars.append(bar)
             let autoHide = BarAutoHideController()
-            autoHide.layout(shownFrame: frame, screenFrame: screen.frame, panel: panel)
+            autoHide.layout(
+                shownFrame: frame, screenFrame: screen.frame, edge: features.preferences.value.barEdge,
+                panel: panel)
             autoHideControllers.append(autoHide)
             if !hidden { panel.orderFrontRegardless() }
         }
@@ -256,8 +265,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func barFrame(for screen: NSScreen) -> NSRect {
         let visible = screen.visibleFrame
         let bottom = dock.isEnabled && !demo ? screen.frame.minY : visible.minY
-        let width = max(200, visible.width - 24)
-        return NSRect(x: visible.minX + 12, y: bottom + 8, width: width, height: BarLayout.height)
+        let edge = features.preferences.value.barEdge
+        guard edge != .bottom else {
+            let width = max(200, visible.width - 24)
+            return NSRect(x: visible.minX + 12, y: bottom + 8, width: width, height: BarLayout.height)
+        }
+        let width = CGFloat(
+            features.preferences.value.sideCollapsed ? ColumnLayout.collapsedWidth : ColumnLayout.width)
+        let originX = edge == .left ? visible.minX + 8 : visible.maxX - width - 8
+        return NSRect(x: originX, y: bottom + 8, width: width, height: max(200, visible.maxY - bottom - 16))
     }
 
     @objc private func refresh() {
@@ -265,7 +281,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let screens = allDisplays ? NSScreen.screens : Array(NSScreen.screens.prefix(1))
         for (index, screen) in screens.enumerated() where panels.indices.contains(index) {
             autoHideControllers[index].layout(
-                shownFrame: barFrame(for: screen), screenFrame: screen.frame, panel: panels[index])
+                shownFrame: barFrame(for: screen), screenFrame: screen.frame,
+                edge: features.preferences.value.barEdge, panel: panels[index])
         }
         if demo {
             entries = sampleWindows()
@@ -290,10 +307,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let captured = scanGeneration.value
         let service = windowService
         let badgeReader = self.badgeReader
+        let windowBadgeReader = self.windowBadgeReader
         let readsBadges = !recoveryMode && features.preferences.value.notificationMode != .off
         scanner.async { [weak self] in
             let windows = service.readWindows()
-            let badges = readsBadges ? badgeReader.read() : nil
+            let badges = readsBadges ? windowBadgeReader.read(windows, adding: badgeReader.read()) : nil
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.scanning = false
@@ -323,7 +341,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let screens = allDisplays ? NSScreen.screens : Array(NSScreen.screens.prefix(1))
         for (index, screen) in screens.enumerated() where panels.indices.contains(index) {
             autoHideControllers[index].layout(
-                shownFrame: barFrame(for: screen), screenFrame: screen.frame, panel: panels[index])
+                shownFrame: barFrame(for: screen), screenFrame: screen.frame,
+                edge: features.preferences.value.barEdge, panel: panels[index])
         }
         switcher?.update(entries: entries, preferences: features.preferences.value)
         updateAutoHide()
@@ -357,7 +376,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             reservesSpace
             ? screens.map {
                 ReservedWindowArea(
-                    displayID: displayID($0), visibleFrame: $0.visibleFrame, barFrame: barFrame(for: $0))
+                    displayID: displayID($0), visibleFrame: $0.visibleFrame, barFrame: barFrame(for: $0),
+                    edge: features.preferences.value.barEdge)
             } : []
     }
 
@@ -473,6 +493,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if action == #selector(toggleDisplays) { item.state = allDisplays ? .on : .off }
             if action == #selector(toggleDock) { item.state = replacesDock ? .on : .off }
             menu.addItem(item)
+            if action == #selector(toggleDisplays) { menu.addItem(barPositionItem()) }
         }
         return menu
     }
@@ -618,6 +639,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func cancelHover() {
         peek.hide()
         previews.hide()
+        rowSummary.hide()
     }
 
     @objc private func activeApplicationChanged() {
@@ -630,11 +652,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func hoverPeek(_ entry: WindowEntry?, source: String, button: NSView, entered: Bool) {
         guard let host = button.window, let screen = host.screen else { return }
+        var available = screen.visibleFrame
+        var reservedBottom: CGFloat = 82
+        switch features.preferences.value.barEdge {
+        case .bottom: break
+        case .left:
+            available = NSRect(
+                x: host.frame.maxX, y: available.minY, width: available.maxX - host.frame.maxX,
+                height: available.height)
+            reservedBottom = 16
+        case .right:
+            available.size.width = host.frame.minX - available.minX
+            reservedBottom = 16
+        }
         peek.hover(
             entry, source: source, entered: entered,
             enabled: features.preferences.value.hoverPeekEnabled && !demo && !recoveryMode,
             sourceFrame: host.convertToScreen(button.convert(button.bounds, to: nil)),
-            screenFrame: screen.visibleFrame)
+            screenFrame: available, reservedBottom: reservedBottom)
     }
 
     private func windows(for launcher: LauncherEntry) -> [WindowEntry] {
@@ -653,6 +688,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             cancelHover()
             NSWorkspace.shared.open(launcher.url)
         }
+    }
+
+    private func rowPointer(_ entry: WindowEntry, button: NSView, entered: Bool) {
+        let value = features.preferences.value
+        if entered && value.barEdge != .bottom && value.sideCollapsed {
+            rowSummary.show(entry, beside: button)
+        } else if !entered {
+            rowSummary.hide(entry.id)
+        }
+    }
+
+    private func barPositionItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "Bar position", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        let current = features.preferences.value.barEdge
+        for (edge, title) in [
+            (BarPreferences.BarEdge.bottom, "Bottom"), (.left, "Left side"), (.right, "Right side"),
+        ] {
+            let option = NSMenuItem(title: title, action: #selector(changeBarEdge(_:)), keyEquivalent: "")
+            option.target = self
+            option.representedObject = edge.rawValue
+            option.state = edge == current ? .on : .off
+            submenu.addItem(option)
+        }
+        item.submenu = submenu
+        item.isEnabled = !recoveryMode
+        return item
+    }
+
+    @objc private func changeBarEdge(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let edge = BarPreferences.BarEdge(rawValue: raw)
+        else { return }
+        cancelHover()
+        var value = features.preferences.value
+        value.barEdge = edge
+        do {
+            try features.preferences.save(value)
+            render()
+            statusItem?.menu = makeMenu()
+            settingsProcess.preferencesApplied()
+        } catch { NSSound.beep() }
+    }
+
+    @objc private func toggleCollapsed() {
+        cancelHover()
+        var value = features.preferences.value
+        value.sideCollapsed.toggle()
+        do {
+            try features.preferences.save(value)
+            let screens = allDisplays ? NSScreen.screens : Array(NSScreen.screens.prefix(1))
+            for (index, screen) in screens.enumerated() where panels.indices.contains(index) {
+                autoHideControllers[index].layout(
+                    shownFrame: barFrame(for: screen), screenFrame: screen.frame, edge: value.barEdge,
+                    panel: panels[index], animated: true)
+            }
+            render()
+            settingsProcess.preferencesApplied()
+        } catch { NSSound.beep() }
     }
 
     private func changePins(_ change: () throws -> Void) {

@@ -5,6 +5,7 @@ public struct BarPreferences: Equatable, Codable {
     public enum PreviewMode: String, CaseIterable, Codable { case titles, thumbnails }
     public enum GroupingMode: String, CaseIterable, Codable { case none, app, appAndProfile }
     public enum PinnedSide: String, CaseIterable, Codable { case right, left }
+    public enum BarEdge: String, CaseIterable, Codable { case bottom, left, right }
     public enum NotificationMode: String, CaseIterable, Codable { case badgesAndPulse, badgesOnly, off }
 
     public var windowScope: WindowScope = .allDisplays
@@ -14,6 +15,8 @@ public struct BarPreferences: Equatable, Codable {
     public var groupingMode: GroupingMode = .none
     public var hoverActionsEnabled = true
     public var pinnedSide: PinnedSide = .left
+    public var barEdge: BarEdge = .bottom
+    public var sideCollapsed = false
     public var hoverPeekEnabled = true
     public var notificationMode: NotificationMode = .badgesAndPulse
     public var autoHideEnabled = false
@@ -41,7 +44,7 @@ public struct BarPreferences: Equatable, Codable {
         case windowScope, previewMode, shortcutsEnabled, shortcuts, pinnedPaths
         case searchEnabled, searchIncludesMinimized, groupingMode, hoverActionsEnabled, autoHideEnabled,
             autoHideDelay
-        case pinnedSide, hoverPeekEnabled, notificationMode
+        case pinnedSide, barEdge, sideCollapsed, hoverPeekEnabled, notificationMode
     }
 
     public init(from decoder: Decoder) throws {
@@ -58,6 +61,8 @@ public struct BarPreferences: Equatable, Codable {
         groupingMode = try values.decodeIfPresent(GroupingMode.self, forKey: .groupingMode) ?? .none
         hoverActionsEnabled = try values.decodeIfPresent(Bool.self, forKey: .hoverActionsEnabled) ?? true
         pinnedSide = try values.decodeIfPresent(PinnedSide.self, forKey: .pinnedSide) ?? .left
+        barEdge = try values.decodeIfPresent(BarEdge.self, forKey: .barEdge) ?? .bottom
+        sideCollapsed = try values.decodeIfPresent(Bool.self, forKey: .sideCollapsed) ?? false
         hoverPeekEnabled = try values.decodeIfPresent(Bool.self, forKey: .hoverPeekEnabled) ?? true
         notificationMode =
             try values.decodeIfPresent(NotificationMode.self, forKey: .notificationMode) ?? .badgesAndPulse

@@ -3,6 +3,8 @@ import Foundation
 public enum UnreadBadge: Equatable {
     case count(Int)
     case dot
+    /// A Simulator device is showing a system alert that waits for input.
+    case alert
 
     public static func parse(_ label: String?) -> UnreadBadge? {
         guard let text = label?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
@@ -19,6 +21,7 @@ public enum UnreadBadge: Equatable {
     public var label: String {
         switch self {
         case .dot: return "•"
+        case .alert: return "!"
         case .count(let count): return count > 99 ? "99+" : String(count)
         }
     }

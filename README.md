@@ -20,8 +20,8 @@ Turn on **Start at login** in WindowBar Settings to open it when you sign in.
 - **Chrome profiles:** identify profile windows and open a new window from a profile menu.
 - **Search and grouping:** find windows by title, app, or profile; group them by app or profile.
 - **Hover previews:** hover an inactive window for a thumbnail and actions, or pause 0.6 seconds for a full-size peek. Hovering the selected window does nothing.
-- **Personalize the bar:** pinned apps start on the left; choose either side, use multiple displays, enable auto-hide, shortcuts, or unread badges. Terminal bell alerts appear only on its pinned icon.
-- **Desktop fit:** maximized windows stop above the taskbar so bottom controls stay accessible.
+- **Personalize the bar:** dock it at the bottom, left, or right screen edge (**Settings → Behavior → Bar position**); pinned apps start on the left (top on a side bar) and can move to the other end; use multiple displays, enable auto-hide, shortcuts, or unread badges. Terminal's bell count stays on its pinned icon; a Claude Code session that finishes while you look elsewhere badges its own window or tab until you view it. iOS Simulator windows show their device's app badges, or **!** while a system alert waits.
+- **Desktop fit:** maximized windows stop beside the taskbar, so their edges stay accessible.
 - **Optional Dock replacement:** off by default and restored when WindowBar quits.
 
 ![Chrome profile menu](docs/screenshots/chrome-menu.png)
