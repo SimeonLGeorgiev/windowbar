@@ -17,6 +17,7 @@ final class HoverPreviewController: NSObject {
     var onSelect: ((WindowEntry) -> Void)?
     var onMinimize: ((WindowEntry) -> Void)?
     var onClose: ((WindowEntry) -> Void)?
+    var onShow: (() -> Void)?
     var previewContent: NSView? { panel?.contentView }
     var interactionFrame: NSRect? {
         guard shownEntryID != nil, let panel else { return nil }
@@ -79,6 +80,7 @@ final class HoverPreviewController: NSObject {
     }
 
     private func show(_ entry: WindowEntry, above button: WindowButton, image: NSImage?, unavailable: Bool) {
+        onShow?()
         let actionHeight: CGFloat = actionsEnabled ? 36 : 0
         let height: CGFloat = (image == nil ? (unavailable ? 104 : 80) : 230) + actionHeight
         let width: CGFloat = 280
@@ -156,8 +158,13 @@ final class HoverPreviewController: NSObject {
             let rect = host.convertToScreen(button.convert(button.bounds, to: nil))
             sourceFrame = rect
             let screen = host.screen?.visibleFrame ?? rect.insetBy(dx: -width, dy: -height)
-            let x = max(screen.minX + 8, min(rect.midX - width / 2, screen.maxX - width - 8))
-            let y = min(rect.maxY + 12, screen.maxY - height - 8)
+            var x = max(screen.minX + 8, min(rect.midX - width / 2, screen.maxX - width - 8))
+            var y = min(rect.maxY + 12, screen.maxY - height - 8)
+            // A side-docked bar is taller than wide; open the card beside it instead of above.
+            if host.frame.height > host.frame.width {
+                x = host.frame.midX < screen.midX ? host.frame.maxX + 8 : host.frame.minX - width - 8
+                y = max(screen.minY + 8, min(rect.midY - height / 2, screen.maxY - height - 8))
+            }
             panel?.setFrame(NSRect(x: x, y: y, width: width, height: height), display: false)
         }
         shownEntryID = entry.id
@@ -175,10 +182,17 @@ final class HoverPreviewController: NSObject {
     func updatePointer(_ point: NSPoint, now: TimeInterval, mousePressed: Bool = false) {
         guard let panel, shownEntryID != nil else { return }
         // Keep the short path between the originating button and the card interactive.
-        let bridge = NSRect(
-            x: max(sourceFrame.minX, panel.frame.minX), y: sourceFrame.maxY,
-            width: max(0, min(sourceFrame.maxX, panel.frame.maxX) - max(sourceFrame.minX, panel.frame.minX)),
-            height: max(0, panel.frame.minY - sourceFrame.maxY))
+        let besideSource = panel.frame.minY < sourceFrame.maxY
+        let bridge =
+            besideSource
+            ? NSRect(
+                x: min(sourceFrame.maxX, panel.frame.maxX), y: max(sourceFrame.minY, panel.frame.minY),
+                width: max(0, max(panel.frame.minX, sourceFrame.minX) - min(sourceFrame.maxX, panel.frame.maxX)),
+                height: max(0, min(sourceFrame.maxY, panel.frame.maxY) - max(sourceFrame.minY, panel.frame.minY)))
+            : NSRect(
+                x: max(sourceFrame.minX, panel.frame.minX), y: sourceFrame.maxY,
+                width: max(0, min(sourceFrame.maxX, panel.frame.maxX) - max(sourceFrame.minX, panel.frame.minX)),
+                height: max(0, panel.frame.minY - sourceFrame.maxY))
         if sourceFrame.contains(point) || panel.frame.contains(point) || bridge.contains(point)
             || mousePressed
         {

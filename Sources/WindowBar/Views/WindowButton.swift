@@ -9,6 +9,8 @@ final class WindowButton: ReorderableButton {
     var onMinimize: ((WindowEntry) -> Void)?
     var onClose: ((WindowEntry) -> Void)?
     var onHover: ((WindowEntry, WindowButton, Bool) -> Void)?
+    /// Fires for every row, including the focused one, unlike `onHover`.
+    var onPointer: ((WindowEntry, WindowButton, Bool) -> Void)?
     var onDismissHover: (() -> Void)?
     var augmentMenu: ((NSMenu, WindowEntry) -> Void)?
     @objc dynamic var focusAmount: CGFloat = 0 { didSet { needsDisplay = true } }
@@ -76,6 +78,7 @@ final class WindowButton: ReorderableButton {
         }
     }
     override func mouseEntered(with event: NSEvent) {
+        onPointer?(entry, self, true)
         guard !entry.focused else {
             hover(0)
             onDismissHover?()
@@ -85,6 +88,7 @@ final class WindowButton: ReorderableButton {
         onHover?(entry, self, true)
     }
     override func mouseExited(with event: NSEvent) {
+        onPointer?(entry, self, false)
         hover(0)
         onHover?(entry, self, false)
     }

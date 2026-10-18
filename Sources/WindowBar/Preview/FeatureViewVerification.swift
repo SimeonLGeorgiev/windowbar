@@ -190,7 +190,7 @@ enum FeatureViewVerification {
         settings.toggleShortcuts()
         try require(features.preferences.value.shortcutsEnabled, "Shortcuts control did not persist")
         try require(
-            settings.tabs.tabViewItems.count == 5 && settings.window?.isVisible == false,
+            settings.tabs.tabViewItems.count == 6 && settings.window?.isVisible == false,
             "Settings pages are missing or interrupted desktop")
         try require(
             settings.tabs.selectedTabViewItem?.label == "General" && settings.startupToggle.frame.height > 0,

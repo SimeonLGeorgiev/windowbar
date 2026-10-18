@@ -81,4 +81,24 @@ final class ReservedWindowAreaTests: XCTestCase {
             barFrame: CGRect(x: 2572, y: 8, width: 1704, height: 66))
         XCTAssertNil(other.fittedFrame(for: visible))
     }
+
+    func testSideBarsNarrowMaximizedWindowsInsteadOfShorteningThem() throws {
+        let left = ReservedWindowArea(
+            displayID: 1, visibleFrame: visible, barFrame: CGRect(x: 8, y: 8, width: 240, height: 1394),
+            edge: .left)
+        let leftFrame = try XCTUnwrap(left.fittedFrame(for: visible))
+        XCTAssertEqual(leftFrame, CGRect(x: 256, y: 0, width: 2304, height: 1410))
+        XCTAssertNil(left.fittedFrame(for: leftFrame))
+        let right = ReservedWindowArea(
+            displayID: 1, visibleFrame: visible, barFrame: CGRect(x: 2312, y: 8, width: 240, height: 1394),
+            edge: .right)
+        let rightFrame = try XCTUnwrap(right.fittedFrame(for: visible))
+        XCTAssertEqual(rightFrame, CGRect(x: 0, y: 0, width: 2304, height: 1410))
+        XCTAssertNil(right.fittedFrame(for: rightFrame))
+        XCTAssertNil(right.fittedFrame(for: CGRect(x: 0, y: 0, width: 1280, height: 1410)))
+        let gridSnapped = CGRect(x: 0, y: 0, width: 2290, height: 1410)
+        XCTAssertTrue(ReservedWindowArea.fits(gridSnapped, within: rightFrame))
+        XCTAssertFalse(
+            ReservedWindowArea.fits(CGRect(x: 0, y: 0, width: 2310, height: 1410), within: rightFrame))
+    }
 }

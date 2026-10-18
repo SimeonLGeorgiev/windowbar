@@ -7,9 +7,18 @@ final class PinsPeekAttentionTests: XCTestCase {
     func testPinnedSideDefaultsRightAndAllNewPreferencesPersist() throws {
         var preferences = try JSONDecoder().decode(BarPreferences.self, from: Data("{}".utf8))
         XCTAssertEqual(preferences.pinnedSide, .left)
+        XCTAssertEqual(preferences.barEdge, .bottom)
+        XCTAssertEqual(preferences.barTint, .off)
+        XCTAssertEqual(preferences.edgeLineWidth, 6)
+        XCTAssertTrue(preferences.edgeLineAlertsUnread)
         XCTAssertTrue(preferences.hoverPeekEnabled)
         XCTAssertEqual(preferences.notificationMode, .badgesAndPulse)
         preferences.pinnedSide = .right
+        preferences.barEdge = .right
+        preferences.sideCollapsed = true
+        preferences.barTint = .strong
+        preferences.edgeLineWidth = 8
+        preferences.edgeLineAlertsUnread = false
         preferences.hoverPeekEnabled = false
         preferences.notificationMode = .off
         XCTAssertEqual(
@@ -33,6 +42,32 @@ final class PinsPeekAttentionTests: XCTestCase {
                 }
             }
         }
+    }
+
+    func testSideColumnKeepsPinsAndWindowsApartBelowTheHeader() {
+        for height in [300.0, 900] {
+            for count in [0, 3, 40] {
+                let top = ColumnLayout(width: 240, height: height, pinnedCount: count, side: .left)
+                let bottom = ColumnLayout(width: 240, height: height, pinnedCount: count, side: .right)
+                let header = height - ColumnLayout.headerHeight
+                XCTAssertEqual(top.launcherColumns, 5)
+                XCTAssertLessThanOrEqual(top.launchers.minY + top.launchers.height, header)
+                XCTAssertLessThanOrEqual(top.windows.minY + top.windows.height, top.launchers.minY)
+                XCTAssertLessThanOrEqual(bottom.launchers.minY + bottom.launchers.height, bottom.windows.minY)
+                XCTAssertLessThanOrEqual(bottom.windows.minY + bottom.windows.height, header)
+                XCTAssertEqual(top.windows.height, bottom.windows.height)
+                XCTAssertLessThanOrEqual(top.launchers.height, (header - 8) / 3 + 0.001)
+            }
+        }
+        let rows = ColumnLayout.rows(heights: [52, 30, 52], available: 100)
+        XCTAssertEqual(rows.offsets, [0, 56, 90])
+        XCTAssertEqual(rows.documentHeight, 142)
+        XCTAssertEqual(ColumnLayout.rows(heights: [], available: 100).documentHeight, 100)
+        let collapsed = ColumnLayout(
+            width: ColumnLayout.collapsedWidth, height: 900, pinnedCount: 3, side: .left, collapsed: true)
+        XCTAssertEqual(collapsed.launcherColumns, 1)
+        XCTAssertLessThanOrEqual(
+            collapsed.launchers.minY + collapsed.launchers.height, 900 - ColumnLayout.collapsedHeaderHeight)
     }
 
     func testRecentWindowSelectionUsesFocusAndDropsClosedWindows() {
@@ -98,5 +133,18 @@ final class PinsPeekAttentionTests: XCTestCase {
         XCTAssertFalse(attention.isPulsing("slack", now: 3))
         attention.update([:], focusedApp: nil, now: 4)
         XCTAssertNil(attention.badges["slack"])
+    }
+
+    func testEdgeLineWidthIsValidatedAndNewsComparesAgainstBaseline() throws {
+        let odd = try JSONDecoder().decode(BarPreferences.self, from: Data(#"{"edgeLineWidth": 40}"#.utf8))
+        XCTAssertEqual(odd.edgeLineWidth, 6)
+        var invalid = BarPreferences()
+        invalid.edgeLineWidth = 5
+        XCTAssertThrowsError(try invalid.validate())
+        let baseline: [String: UnreadBadge] = ["slack": .count(34)]
+        XCTAssertFalse(AppAttention.hasNews(since: baseline, now: ["slack": .count(34)]))
+        XCTAssertFalse(AppAttention.hasNews(since: baseline, now: ["slack": .count(30)]))
+        XCTAssertTrue(AppAttention.hasNews(since: baseline, now: ["slack": .count(35)]))
+        XCTAssertTrue(AppAttention.hasNews(since: baseline, now: ["slack": .count(34), "window:1": .alert]))
     }
 }

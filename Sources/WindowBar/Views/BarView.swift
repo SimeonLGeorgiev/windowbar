@@ -4,10 +4,11 @@ import WindowBarCore
 
 final class BarView: NSVisualEffectView {
     let launchScroll = HorizontalScrollView()
-    let launchDocument = NSView()
+    let launchDocument = FlippedView()
     let scroll = HorizontalScrollView()
-    let document = NSView()
+    let document = FlippedView()
     let menuButton = NSButton()
+    let collapseButton = NSButton()
     let searchButton = NSButton()
     private var preferences = BarPreferences()
     private var groups: [WindowGroup] = []
@@ -18,11 +19,14 @@ final class BarView: NSVisualEffectView {
     let permissionButton = NSButton(title: "Enable Accessibility", target: nil, action: nil)
     let message = NSTextField(labelWithString: "")
     private let divider = NSBox()
+    private let tint = NSView()
     private var buttons: [String: WindowButton] = [:]
     private var entries: [WindowEntry] = []
     private var launchers: [LauncherEntry] = []
     private var launcherButtons: [String: LauncherButton] = [:]
     private var trusted = false
+    /// Re-attached views have no on-screen frames to animate from.
+    private var settlesWithoutAnimation = true
     var onSearch: (() -> Void)?
     var onGroupToggle: (() -> Void)?
     var onSelect: ((WindowEntry) -> Void)?
@@ -34,6 +38,7 @@ final class BarView: NSVisualEffectView {
     var onLauncherReorder: ((String, String, Bool) -> Void)?
     var onLauncherHover: ((LauncherEntry, [WindowEntry], LauncherButton, Bool) -> Void)?
     var onHover: ((WindowEntry, WindowButton, Bool) -> Void)?
+    var onRowPointer: ((WindowEntry, WindowButton, Bool) -> Void)?
     var onDragStart: (() -> Void)?
     var augmentWindowMenu: ((NSMenu, WindowEntry) -> Void)?
 
@@ -45,6 +50,10 @@ final class BarView: NSVisualEffectView {
         wantsLayer = true
         layer?.cornerRadius = 16
         layer?.borderWidth = 1
+        tint.wantsLayer = true
+        tint.layer?.cornerRadius = 16
+        tint.autoresizingMask = [.width, .height]
+        addSubview(tint)
         divider.boxType = .separator
         addSubview(divider)
         updateAppearance()
@@ -63,6 +72,9 @@ final class BarView: NSVisualEffectView {
         menuButton.isBordered = false
         menuButton.toolTip = "WindowBar settings"
         addSubview(menuButton)
+        collapseButton.contentTintColor = .secondaryLabelColor
+        collapseButton.isBordered = false
+        addSubview(collapseButton)
         searchButton.image = NSImage(
             systemSymbolName: "magnifyingglass", accessibilityDescription: "Search windows")
         searchButton.isBordered = false
@@ -75,6 +87,8 @@ final class BarView: NSVisualEffectView {
         addSubview(permissionButton)
         message.font = .systemFont(ofSize: 12)
         message.textColor = .secondaryLabelColor
+        message.lineBreakMode = .byWordWrapping
+        message.maximumNumberOfLines = 2
         addSubview(message)
     }
 
@@ -85,7 +99,10 @@ final class BarView: NSVisualEffectView {
         preferences: BarPreferences = BarPreferences()
     ) {
         if self.preferences.groupingMode != preferences.groupingMode { collapsedGroups.removeAll() }
+        let tintChanged = self.preferences.barTint != preferences.barTint
         self.preferences = preferences
+        // Re-resolving every update also follows a changed system accent color.
+        if tintChanged || preferences.barTint != .off { updateAppearance() }
         searchButton.isHidden = !preferences.searchEnabled
         self.entries = entries
         self.launchers = launchers
@@ -135,6 +152,7 @@ final class BarView: NSVisualEffectView {
                 button.onClose = { [weak self] in self?.onClose?($0) }
                 button.onReorder = { [weak self] in self?.onWindowReorder?($0, $1, $2) }
                 button.onHover = { [weak self] in self?.onHover?($0, $1, $2) }
+                button.onPointer = { [weak self] in self?.onRowPointer?($0, $1, $2) }
                 button.onDismissHover = { [weak self] in self?.onDragStart?() }
                 button.onDragStart = { [weak self] in self?.onDragStart?() }
                 button.augmentMenu = { [weak self] in self?.augmentWindowMenu?($0, $1) }
@@ -161,6 +179,12 @@ final class BarView: NSVisualEffectView {
         now: TimeInterval = ProcessInfo.processInfo.systemUptime
     ) {
         for button in buttons.values {
+            let windowKey = "window:" + button.entry.id
+            if mode != .off, let badge = attention.badges[windowKey] {
+                button.updateAttention(
+                    badge, pulsing: mode == .badgesAndPulse && attention.isPulsing(windowKey, now: now))
+                continue
+            }
             let id = button.entry.appIdentity
             // Terminal's Dock bell belongs to the app, not every shell session.
             let windowBadge =
@@ -180,6 +204,23 @@ final class BarView: NSVisualEffectView {
 
     override func layout() {
         super.layout()
+        tint.frame = bounds
+        let vertical = preferences.barEdge != .bottom
+        scroll.vertical = vertical
+        launchScroll.vertical = vertical
+        for button in buttons.values { button.reordersVertically = vertical }
+        collapseButton.isHidden = !vertical
+        if vertical { layoutColumn() } else { layoutRow() }
+        settlesWithoutAnimation = false
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        settlesWithoutAnimation = true
+        needsLayout = true
+    }
+
+    private func layoutRow() {
         let shelf = ShelfLayout(
             width: bounds.width, pinnedCount: launchers.count,
             searchEnabled: preferences.searchEnabled, side: preferences.pinnedSide)
@@ -204,23 +245,10 @@ final class BarView: NSVisualEffectView {
         let geometry = BarLayout(availableWidth: Double(scroll.bounds.width), focused: displayFocus)
         let oldX = scroll.contentView.bounds.minX
         document.frame = NSRect(x: 0, y: 0, width: geometry.documentWidth, height: scroll.bounds.height)
-        NSAnimationContext.runAnimationGroup { context in
-            let animate =
-                window?.isVisible == true && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-            context.duration = animate ? 0.22 : 0
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            for (button, position) in zip(displayViews, geometry.buttons) {
-                let frame = NSRect(x: position.x, y: 0, width: position.width, height: BarLayout.buttonHeight)
-                do {
-                    if !animate || button.frame.isEmpty {
-                        button.frame = frame
-                    } else if button.frame != frame {
-                        button.animator().frame = frame
-                    }
-                    button.needsDisplay = true
-                }
-            }
-        }
+        place(
+            geometry.buttons.map {
+                NSRect(x: $0.x, y: 0, width: $0.width, height: BarLayout.buttonHeight)
+            })
         scroll.contentView.scroll(
             to: NSPoint(x: min(oldX, max(0, document.frame.width - scroll.bounds.width)), y: 0))
         permissionButton.frame = NSRect(
@@ -231,6 +259,90 @@ final class BarView: NSVisualEffectView {
         )
     }
 
+    private func layoutColumn() {
+        let collapsed = preferences.sideCollapsed
+        let column = ColumnLayout(
+            width: Double(bounds.width), height: Double(bounds.height), pinnedCount: launchers.count,
+            side: preferences.pinnedSide, collapsed: collapsed)
+        layoutColumnHeader(collapsed: collapsed)
+        layoutLauncherGrid(column)
+        divider.isHidden = launchers.isEmpty
+        divider.frame = NSRect(x: 16, y: column.dividerY, width: bounds.width - 32, height: 1)
+        scroll.frame = column.windows
+        let heights = displayViews.map {
+            $0 is WindowGroupButton ? ColumnLayout.groupRowHeight : BarLayout.buttonHeight
+        }
+        let rows = ColumnLayout.rows(heights: heights, available: Double(scroll.bounds.height))
+        let oldY = scroll.contentView.bounds.minY
+        document.frame = NSRect(x: 0, y: 0, width: scroll.bounds.width, height: rows.documentHeight)
+        place(
+            zip(rows.offsets, heights).map {
+                NSRect(x: 0, y: $0, width: scroll.bounds.width, height: $1)
+            })
+        scroll.contentView.scroll(
+            to: NSPoint(x: 0, y: min(oldY, max(0, document.frame.height - scroll.bounds.height))))
+        message.isHidden = message.isHidden || collapsed
+        message.frame = NSRect(
+            x: scroll.frame.minX + 6, y: scroll.frame.maxY - 40, width: max(0, scroll.bounds.width - 12),
+            height: 34)
+        permissionButton.frame = NSRect(
+            x: scroll.frame.minX + 4, y: scroll.frame.maxY - 80, width: min(180, scroll.bounds.width - 8),
+            height: 30)
+    }
+
+    private func layoutColumnHeader(collapsed: Bool) {
+        // The chevron points the way the bar will move: toward its screen edge to collapse.
+        let towardEdge = (preferences.barEdge == .left) != collapsed
+        collapseButton.image = NSImage(
+            systemSymbolName: towardEdge ? "chevron.left" : "chevron.right",
+            accessibilityDescription: collapsed ? "Expand bar" : "Collapse bar")
+        collapseButton.toolTip = collapsed ? "Expand bar" : "Collapse bar"
+        let headerY = bounds.height - CGFloat(ColumnLayout.headerHeight) + 6
+        if collapsed {
+            let centerX = bounds.width / 2 - 14
+            collapseButton.frame = NSRect(x: centerX, y: headerY, width: 28, height: 32)
+            searchButton.frame = NSRect(x: centerX + 1, y: headerY - 34, width: 26, height: 32)
+            menuButton.frame = NSRect(x: centerX, y: headerY - 68, width: 28, height: 32)
+        } else {
+            searchButton.frame = NSRect(x: 12, y: headerY, width: 26, height: 32)
+            collapseButton.frame = NSRect(x: bounds.width - 74, y: headerY, width: 28, height: 32)
+            menuButton.frame = NSRect(x: bounds.width - 42, y: headerY, width: 28, height: 32)
+        }
+    }
+
+    private func layoutLauncherGrid(_ column: ColumnLayout) {
+        launchScroll.frame = column.launchers
+        let pitch = CGFloat(ColumnLayout.launcherPitch)
+        let launcherRows = (launchers.count + column.launcherColumns - 1) / column.launcherColumns
+        launchDocument.frame = NSRect(
+            x: 0, y: 0, width: launchScroll.bounds.width,
+            height: max(launchScroll.bounds.height, CGFloat(launcherRows) * pitch))
+        let launcherInset = column.launcherColumns == 1 ? (launchScroll.bounds.width - 32) / 2 : 0
+        for (index, launcher) in launchers.enumerated() {
+            launcherButtons[launcher.url.path]?.frame = NSRect(
+                x: launcherInset + CGFloat(index % column.launcherColumns) * pitch,
+                y: CGFloat(index / column.launcherColumns) * pitch + 3, width: 32, height: 32)
+        }
+    }
+
+    private func place(_ frames: [NSRect]) {
+        NSAnimationContext.runAnimationGroup { context in
+            let animate =
+                !settlesWithoutAnimation && window?.isVisible == true
+                && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            context.duration = animate ? 0.22 : 0
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            for (button, frame) in zip(displayViews, frames) {
+                if !animate || button.frame.isEmpty {
+                    button.frame = frame
+                } else if button.frame != frame {
+                    button.animator().frame = frame
+                }
+                button.needsDisplay = true
+            }
+        }
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateAppearance()
@@ -239,6 +351,14 @@ final class BarView: NSVisualEffectView {
     private func updateAppearance() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             layer?.borderColor = NSColor.separatorColor.cgColor
+            let strength: CGFloat
+            switch preferences.barTint {
+            case .off: strength = 0
+            case .light: strength = 0.18
+            case .strong: strength = 0.38
+            }
+            tint.layer?.backgroundColor =
+                strength > 0 ? NSColor.controlAccentColor.withAlphaComponent(strength).cgColor : nil
             if NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
                 layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
                 blendingMode = .withinWindow

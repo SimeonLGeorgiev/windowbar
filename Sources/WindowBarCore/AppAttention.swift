@@ -3,6 +3,8 @@ import Foundation
 public enum UnreadBadge: Equatable {
     case count(Int)
     case dot
+    /// A Simulator device is showing a system alert that waits for input.
+    case alert
 
     public static func parse(_ label: String?) -> UnreadBadge? {
         guard let text = label?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
@@ -16,9 +18,18 @@ public enum UnreadBadge: Equatable {
         return .count(min(text.hasSuffix("+") ? max(100, count) : count, 999))
     }
 
+    public static func increased(from old: UnreadBadge?, to new: UnreadBadge) -> Bool {
+        switch (old, new) {
+        case (.none, _): return true
+        case (.some(.count(let previous)), .count(let current)): return current > previous
+        default: return old != new
+        }
+    }
+
     public var label: String {
         switch self {
         case .dot: return "•"
+        case .alert: return "!"
         case .count(let count): return count > 99 ? "99+" : String(count)
         }
     }
@@ -38,13 +49,7 @@ public struct AppAttention {
                 pulseUntil.removeValue(forKey: app)
                 continue
             }
-            let increased: Bool
-            switch (old, badge) {
-            case (.none, _): increased = true
-            case (.some(.count(let previous)), .count(let current)): increased = current > previous
-            default: increased = old != badge
-            }
-            if initialized && increased {
+            if initialized && UnreadBadge.increased(from: old, to: badge) {
                 pulseUntil[app] = now + 3
             } else if old != badge {
                 pulseUntil.removeValue(forKey: app)
@@ -55,4 +60,9 @@ public struct AppAttention {
     }
 
     public func isPulsing(_ app: String, now: TimeInterval) -> Bool { (pulseUntil[app] ?? 0) > now }
+
+    /// True when any badge is new or higher than in the baseline snapshot.
+    public static func hasNews(since baseline: [String: UnreadBadge], now: [String: UnreadBadge]) -> Bool {
+        now.contains { UnreadBadge.increased(from: baseline[$0.key], to: $0.value) }
+    }
 }

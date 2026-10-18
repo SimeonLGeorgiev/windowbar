@@ -40,7 +40,8 @@ final class WindowPeekController {
 
     func hover(
         _ entry: WindowEntry?, source: String, entered: Bool, enabled: Bool,
-        sourceFrame: CGRect, screenFrame: CGRect, now: TimeInterval = ProcessInfo.processInfo.systemUptime
+        sourceFrame: CGRect, screenFrame: CGRect, reservedBottom: CGFloat = 82,
+        now: TimeInterval = ProcessInfo.processInfo.systemUptime
     ) {
         if !entered {
             guard self.source == source else { return }
@@ -49,7 +50,7 @@ final class WindowPeekController {
         }
         hide()
         guard enabled, let entry, !entry.focused, !entry.minimized, let frame = entry.frame,
-            let destination = PeekLayout.frame(window: frame, screen: screenFrame)
+            let destination = PeekLayout.frame(window: frame, screen: screenFrame, reservedBottom: reservedBottom)
         else { return }
         self.source = source
         self.sourceFrame = sourceFrame
